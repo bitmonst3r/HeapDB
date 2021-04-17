@@ -23,7 +23,6 @@ public class OrdIndex implements DBIndex {
 	 * Create nested list of index entries
 	 */
 	private final List <List <Integer>> entries;
-	int size = 0;
 
 	/**
 	 * Create an new ordered index called entries
@@ -37,7 +36,7 @@ public class OrdIndex implements DBIndex {
 	 * Binary search that searches nested list for key
 	 * @param arr - nested list
 	 * @param key - index
-	 * @return found key
+	 * @return found key return index, if not found return -1
 	 */
 	public int binarySearch(List <List <Integer>> arr, int key) {
 		int lo = 0;
@@ -76,10 +75,17 @@ public class OrdIndex implements DBIndex {
 
 		while (hi-lo > 1) {
 			int mid = (lo+hi) / 2;
-			if (key == arr.get(mid).get(0)) return mid;
+			// Check if key is present at mid
+			if (key == arr.get(mid).get(0)){
+				return mid;
+			}
+
+			// If key is greater, ignore left half
 			if (key < arr.get(mid).get(0)) {
 				hi = mid;
+
 			} else {
+				// If key is smaller, ignore right half
 				lo = mid;
 			}
 		}
@@ -107,8 +113,9 @@ public class OrdIndex implements DBIndex {
 				lo = mid + 1;
 			}
 			// If key is smaller, ignore right half
-			else
+			else {
 				hi = mid - 1;
+			}
 		}
 		// Key was not present
 		return -1;
@@ -144,7 +151,6 @@ public class OrdIndex implements DBIndex {
 		blocks2.addAll(blockSet);
 		// return list of block numbers (no duplicates)
 		return blocks2;
-
 	}
 
 	/**
@@ -155,20 +161,15 @@ public class OrdIndex implements DBIndex {
 	 */
 	@Override
 	public void insert(int key, int blockNum) {
-		// If key is not found
-		if(entries.size() <= 0) {
-			// Create new array and add to entries
-			ArrayList <Integer> list = new ArrayList <>();
-			entries.add(0, list);
-			// Insert key and block number to the list in entries
-			entries.get(0).add(key);
-			entries.get(0).add(blockNum);
-		}
-		else {
-			// Use binary search to determine position of key and block number insert
-			int index = insertSearch(entries, key);
+		// If entries is empty
+		if(entries.size() > 0) {
+			// Use binary search to find position for insert
+			int index = binarySearch(entries, key);
 
-			// Determine if key goes at end of entries
+			if (index == -1) {
+				index = insertSearch(entries, key);
+			}
+			// Does key go at end of entries?
 			if (index > entries.size()-1) {
 				// Create new list and add to entries at discovered location
 				ArrayList <Integer> blocks = new ArrayList <>();
@@ -178,23 +179,32 @@ public class OrdIndex implements DBIndex {
 				entries.get(index).add(blockNum);
 			}
 			else {
-				// Determine if key goes at position already occupied by different key value
+				// Does key go at a position that's taken by another key value?
 				if (entries.get(index).get(0) != key) {
-					// Create new list and add to entries at discovered location
-					ArrayList <Integer> holdList = new ArrayList <>();
-					entries.add(index, holdList);
-					// Add key and block number to list at entries at discovered location
+					// Create new list and add to entries to index
+					ArrayList <Integer> list = new ArrayList <>();
+					entries.add(index, list);
+					// Add key and block number to entries by index
 					entries.get(index).add(key);
 					entries.get(index).add(blockNum);
 				}
-				// Determine if key already exists in entries
+				// If key already exists in entries
 				else {
 					// Add block number to already existing list
 					entries.get(index).add(blockNum);
-					// Sort values in entries at search key minus the search key value
-					Collections.sort(entries.get(index).subList(1, entries.get(index).size()));
+					int size = entries.get(index).size();
+					// Sort values in entries, skip key value
+					Collections.sort(entries.get(index).subList(1, size));
 				}
 			}
+		}
+		else {
+			// Create new array and add to entries
+			ArrayList<Integer> list = new ArrayList<>();
+			entries.add(0, list);
+			// Insert key and block number to the list in entries
+			entries.get(0).add(key);
+			entries.get(0).add(blockNum);
 		}
 	}
 
@@ -223,6 +233,10 @@ public class OrdIndex implements DBIndex {
 			// If block number exists, delete
 			if (index2 != -1) {
 				entries.get(index).remove(index2+1);
+			}
+
+			if (entries.get(index).size() == 1) {
+				entries.remove(index);
 			}
 		}
 	}

@@ -7,41 +7,17 @@ import java.util.List;
 /**
  * A heap file implementation of the DB interface. Record layout within blocks
  * uses a bit map.
- * 
- * @author Glenn 
- * 
- * modified. 3/14/2020 David 
+ *
+ * @author Glenn
+ *
+ * modified. 3/14/2020 David
  * Changed block 1 bitmap.
  * Bit=0 means block has empty row space.
- * Bit=1 means block is full. 
+ * Bit=1 means block is full.
  *
  */
 
 public class HeapDB implements DB, Iterable<Record> {
-
-	// file layout:
-	// - block 0 is used to store metadata
-	// - first 4 bytes: an int giving database file type (0 = heap type)
-	// - next 4 bytes: an int giving version number
-	// - next 4 bytes: an int giving number of bytes in schema
-	// - next bytes: schema for this database
-	// - block 1 is used as a block bitmap,
-	// 0 block has space or block does not exist yet.
-	// blockNum <= bf.lastBlockIndex --> block exists
-	// blockNum > bf.lastBlockIndex --> block does not exist yet
-	// 1 block is full.
-	// In the bitmap, the leftmost bit is
-	// bit 0, and corresponds to block 0.
-
-	// block layout:
-	// - each block contains a record bit map followed by the records
-	// 0 record is free
-	// 1 record is used
-	//
-
-	// TODO
-	// - add a modify() method and test it
-	// - create a HashDB implementation of the DB interface
 
 	private BlockedFile bf;
 	private Schema schema;
@@ -82,7 +58,7 @@ public class HeapDB implements DB, Iterable<Record> {
 
 	/**
 	 * Create a new, empty database with the given schema.
-	 * 
+	 *
 	 * @param filename
 	 * @param schema
 	 */
@@ -119,7 +95,7 @@ public class HeapDB implements DB, Iterable<Record> {
 
 	/**
 	 * Open an existing heap database. The schema is read from the database file.
-	 * 
+	 *
 	 * @param filename
 	 * @return
 	 */
@@ -179,7 +155,7 @@ public class HeapDB implements DB, Iterable<Record> {
 	 * Return the number of records in the database. Note: this does a linear
 	 * search, so is slow. It would be better to keep an instance variable that
 	 * tracks the current size.
-	 * 
+	 *
 	 * @return
 	 */
 	public int size() {
@@ -216,18 +192,15 @@ public class HeapDB implements DB, Iterable<Record> {
 					blockMap.setBit(blockNum, true);
 					bf.write(bitmapBlock, blockmapBuffer);
 				}
-				// index maintenance
-				// YOUR CODE HERE
-				
+
 				for (int i=0; i< indexes.length; i++) {
 					if (indexes[i]!=null) {
-						// maintain index[i], 
-						// indexes[i].insert( <<column value from record>>, blockNum );
+						//index maintenance, getting a record value to insert into indexes
+						IntField recordfield = (IntField)rec.get(i);
+						indexes[i].insert( recordfield.getValue(), blockNum);
 					}
 				}
-
 				return true;
-
 			}
 		}
 
@@ -269,15 +242,15 @@ public class HeapDB implements DB, Iterable<Record> {
 							blockMap.setBit(blockNum, false);
 							bf.write(bitmapBlock, blockmapBuffer);
 						}
-							// index maintenance
-							// YOUR CODE HERE
+
 						for (int i=0; i< indexes.length; i++) {
 							if (indexes[i]!=null) {
-								// maintain index[i], 
-								// indexes[i].delete(<<column value>>, blockNum );
+								// index maintenance
+								//same as insert but instead uses delete.
+								IntField recordfield= (IntField)rec.get(i);
+								indexes[i].delete(recordfield.getValue(), blockNum );
 							}
 						}
-
 						return true;
 					}
 				}
@@ -309,25 +282,35 @@ public class HeapDB implements DB, Iterable<Record> {
 			throw new IllegalArgumentException("Field '" + fname + "' not in schema.");
 		}
 
-		List<Record> result = new ArrayList<Record>();
+		List<Record> result = new ArrayList<>();
 
-		// YOUR CODE HERE
-				if (indexes[fieldNum]==null) { 
-					// no index on this column.  do linear scan
-					// add all records into "result"
-					for (Record rec : this) {
-						// ...
-				    }
-					
-				} else {
-					// do index lookup
-					// returns a list of block numbers
-					// call lookupInBlock to get the actual records 
-					// add records into "result'
+		if (indexes[fieldNum]==null) {
+			// no index on this column.  do linear scan
+			// add all records into "result"
+			//where the column value key is fieldnum
+			for (Record rec : this) {
+				IntField recordfield = (IntField)rec.get(fieldNum);
+				// have to check if the record value is equal to the key
+				// if so added to the list
+				if(recordfield.getValue()==key){
+					result.add(rec);
 				}
-
-		// replace the following line with your return statement
-		throw new UnsupportedOperationException();
+			}
+		} else {
+			// Do an index lookup of the key
+			// For each block in the blocknumbers of the index lookup
+			List<Integer> listofblocks =indexes[fieldNum].lookup(key);
+			for(Integer blocks : listofblocks ){
+				// get the records of the block
+				// for each record in the records
+				// Add that record to the results
+				List<Record> reclist =lookupInBlock(fieldNum, key, blocks);
+				for(Record rec:reclist){
+					result.add(rec);
+				}
+			}
+		}
+		return result;
 	}
 
 	// Perform a linear search in the block with the given blockNum
@@ -412,16 +395,27 @@ public class HeapDB implements DB, Iterable<Record> {
 			throw new IllegalArgumentException("index is null");
 		}
 
-		// YOUR CODE HERE
 		// for each record in the DB, you will need to insert its
 		// index column value and the block number
-		
-		// HINT:  see method diagnosticPrint for example of how to 
-		// iterate of all data blocks in table and all rows
-		// in each block
-		
-	
-		throw new UnsupportedOperationException();
+		Record rec = schema.blankRecord();
+		// read  block bitmap
+		bf.read(bitmapBlock, blockmapBuffer);
+
+		// iterate through the blocks
+		for (int blockNum = bitmapBlock + 1; blockNum <= bf.getLastBlockIndex(); blockNum++) {
+
+			//iterating through the records
+			for (int recNum = 0; recNum < recMap.size(); recNum++) {
+				if (recMap.getBit(recNum)) {
+					//find record location and use to deserialize
+					int loc = recordLocation(recNum);
+					rec.deserialize(buffer.buffer, loc);
+					//inserting values into the index.
+					IntField recordfield = (IntField)rec.get(fieldNum);
+					index.insert(recordfield.getValue(), blockNum);
+				}
+			}
+		}
 	}
 
 	/**
@@ -511,20 +505,20 @@ public class HeapDB implements DB, Iterable<Record> {
 
 	/**
 	 * An alternative to toString() that is useful for debugging.
-	 * 
+	 *
 	 * @return
 	 */
 	public String toStringDiagnostic() {
 		StringBuffer sb = new StringBuffer();
 		Record rec = schema.blankRecord();
-		
+
 		// read and print the block bitmap
 		bf.read(bitmapBlock, blockmapBuffer);
 		sb.append("Block bitmap:  " + blockMap);
 
 		for (int blockNum = bitmapBlock + 1; blockNum <= bf.getLastBlockIndex(); blockNum++) {
 			bf.read(blockNum, buffer);
-			// print the record bitmap of block 
+			// print the record bitmap of block
 			sb.append("Block " + blockNum + "\n");
 			sb.append("Record bitmap: " + recMap + "\n");
 			int recsOnLine = 0;
@@ -533,7 +527,7 @@ public class HeapDB implements DB, Iterable<Record> {
 					// record j is present; check its key value
 					int loc = recordLocation(recNum);
 					rec.deserialize(buffer.buffer, loc);
-					sb.append(rec);
+					sb.append(rec); //dont need
 					recsOnLine++;
 					if (recsOnLine % 16 == 0) {
 						sb.append("\n");
@@ -552,5 +546,4 @@ public class HeapDB implements DB, Iterable<Record> {
 		}
 		return sb.toString();
 	}
-
 }
